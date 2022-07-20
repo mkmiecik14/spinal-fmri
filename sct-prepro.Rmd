@@ -1,0 +1,309 @@
+---
+title: "SCT Preprocessing"
+author: "Aisha"
+date: "7/20/2022"
+output: html_document
+---
+[R Markdown Link](https://rmarkdown.rstudio.com/lesson-1.html)
+
+[R Markdown Cheatsheet](https://rmarkdown.rstudio.com/lesson-8.html)
+
+# <span style="color:red;text-decoration:underline;">Anatomical Image Preprocessing </span>
+
+## Segmenting the anatomical image <span style="color:blue;">[user] </span>
+This command allows the user to manually select the center of the spinal cord for an anatomical image. This command is used instead of 'sct_propseg'
+
+```{bash, eval=FALSE}
+sct_deepseg_sc \
+-i anat.nii.gz \
+-centerline viewer \
+-c t2 \
+-brain 0 \
+-kernel 2d \
+-v 1 \
+-qc qc_report \
+-ofolder \
+-o anat_segment.nii.gz
+```
+
+## Manually labeling all labels <span style="color:blue;">[user] </span>
+This command allows the user to manually label the vertebral levels of the spinal cord. The user should only label vertebral levels that correspond to the segmentation spinal cord. Labels '0-7' corresponds with C1-C8 and labels '8-19' corresponds with T1-T12. 
+
+```{bash, eval=FALSE}
+sct_label_utils \
+-i anat.nii.gz \
+-create-viewer 0:19 \
+-o anat_labels.nii.gz
+```
+
+## Extracting specific vertebral labels
+This command will extract specific vertebral labels (from the step above) to help with the registration step. The user should select 2 labels from the step above.
+
+```{bash, eval=FALSE}
+sct_label_utils \
+-i anat_labels.nii.gz \
+-vert-body 0,19 \
+-o anat_labels_ext.nii.gz
+```
+
+## Registering to template
+The anatomical image will be registered onto a template image. 
+
+```{bash, eval=FALSE}
+sct_register_to_template \
+-i anat.nii.gz \
+-s anat_segment.nii.gz \
+-l anat_vert_ext.nii.gz \
+-c t2 \
+-o \
+-qc qc_report
+```
+
+## Warping the template 
+This command will transform the template using warping fields.
+
+```{bash, eval=FALSE}
+sct_warp_template \
+-d anat.nii.gz \
+-w warp_template2anat.nii.gz \
+-a 0 \
+-ofolder label \
+-qc qc_report
+```
+
+## Segmenting grey matter 
+This command will extract the grey matter from the anatomical image. Allow time for this command to process (~6 minutes)
+```{bash, eval=FALSE}
+sct_deepseg_gm \
+-i template2anat.nii.gz \
+-o anat_gm_segment.nii.gz \
+-qc qc_report/
+```
+
+## Segmenting white matter 
+This command will extract the white matter from the anatomical image. This command subtracts the grey matter from the spinal cord segment to output the white matter only. 
+
+```{bash, eval=FALSE}
+sct_maths \
+-i anat_segment.nii.gz \
+-sub anat_gm_segment.nii.gz \
+-o anat_wm_segment.nii.gz 
+```
+
+# <span style="color:red;text-decoration:underline;">fMRI Preprocessing </span>
+
+## Computing a mean image 
+This command computes the mean image of the functional image. 
+
+```{bash, eval=FALSE}
+sct_maths \
+-i funct.nii.gz \
+-mean t \
+-o mean.nii.gz
+```
+
+## Obtaining the spinal cord centerline <span style="color:blue;">[user] </span>
+This command allows the user to manually select the center of the spinal cord to obtain the center line. 
+
+```{bash, eval=FALSE}
+sct_get_centerline \
+-i funct_mean.nii.gz \
+-c t2 \
+-method viewer \
+-o funct_mean_centerline.nii.gz
+```
+
+## Creating a mask
+This command creates a mask around the spinal cord using the center line. 
+
+```{bash, eval=FALSE}
+sct_create_mask \
+-i funct.nii.gz \
+-p centerline,funct_mean_centerline.nii.gz \
+-size 35mm \
+-f cylinder \
+-o funct_mask.nii.gz
+```
+
+## Motion correction
+This command performs motion correction on the functional image. 
+
+```{bash, eval=FALSE}
+sct_fmri_moco \
+-i funct.nii.gz \
+-m funct_mask.nii.gz \
+-g 1 \
+-ofolder 
+```
+
+## Motion correction segment <span style="color:blue;">[user] </span>
+This command allows the user to extract the center line of the motion corrected image to output the spinal cord segment after motion correction is performed. 
+
+```{bash, eval=FALSE}
+sct_deepseg_sc \
+-i funct_moco_mean.nii.gz \
+-centerline viewer \
+-c t2 \
+-brain 0 \
+-kernel 2d \
+-v 1 \
+-o funct_moco_mean_segment.nii.gz 
+```
+
+## Transforming the anatomical image to fMRI space
+This command transforms the anatomical image corresponding of the participant to the fMRI space of that participant's functional image. 
+
+```{bash, eval=FALSE}
+sct_register_multimodal \
+-i anat_segment.nii.gz \
+-d funct_mean.nii.gz \
+-identity 1 \
+-ofolder
+```
+
+## Registering the fMRI image onto the template
+This command registers the fMRI image onto the template provided by spinal cord toolbox.
+
+Note: The directory must be set for the PAM50 templates in the spinal cord toolbox (SCT_DIR).
+
+**SCT_DIR="C:/Users/GyrlUser/spinalcordtoolbox"**
+
+```{bash, eval=FALSE}
+sct_register_multimodal \
+-i "${SCT_DIR}/data/PAM50/template/PAM50_t2.nii.gz" \
+-d funct_moco_mean.nii.gz \
+-dseg funct_moco_mean_segment.nii.gz \
+-param step=1,type=im,algo=syn,metric=CC,iter=5,slicewise=0 \
+-initwarp warp_template2anat.nii.gz \
+-initwarpinv warp_anat2template.nii.gz \
+-owarp warp_template2fmri.nii.gz \
+-owarpinv warp_fmri2template.nii.gz \
+-qc qc_report \
+-ofolder 
+```
+
+## Warping template
+This command warps the template image using the warping fields provided by the previous command.
+
+```{bash, eval=FALSE}
+sct_warp_template \
+-d funct_moco_mean.nii.gz \
+-w warp_template2fmri.nii.gz \
+-s 1 \
+-a 0 \
+-qc qc_report \
+-ofolder
+```
+
+## Viewing spinal levels 
+This command allows the user to view the spinal levels (specified in the anatomical image preprocessing steps) in fsleyes. 
+
+**Note: This command must be run Ubuntu or anywhere fsleyes can be viewed from**
+```{bash, eval=FALSE}
+fsleyes --scene lightbox --hideCursor funct_moco_mean.nii.gz -cm greyscale -dr 0 1000 \
+spinal_levels/spinal_level_01 -cm red \
+spinal_levels/spinal_level_02 -cm blue \
+spinal_levels/spinal_level_03 -cm green \
+spinal_levels/spinal_level_04 -cm yellow \
+spinal_levels/spinal_level_05 -cm red \
+spinal_levels/spinal_level_06 -cm blue \
+spinal_levels/spinal_level_07 -cm green \
+spinal_levels/spinal_level_08 -cm yellow \
+spinal_levels/spinal_level_09 -cm red \
+spinal_levels/spinal_level_10 -cm blue \
+spinal_levels/spinal_level_11 -cm green \
+spinal_levels/spinal_level_12 -cm yellow \
+spinal_levels/spinal_level_13 -cm red \
+spinal_levels/spinal_level_14 -cm blue \
+spinal_levels/spinal_level_15 -cm green \
+spinal_levels/spinal_level_16 -cm yellow \
+spinal_levels/spinal_level_17 -cm red \
+spinal_levels/spinal_level_18 -cm blue \
+spinal_levels/spinal_level_19 -cm green \
+spinal_levels/spinal_level_20 -cm yellow 
+```
+
+
+## Cropping the fMRI
+This command crops the image to only focus on the spinal cord segment. This image is cropped to the size of the gm segment from the PAM50 template.
+
+```{bash, eval=FALSE}
+sct_crop_image \
+-i funt_moco.nii.gz \
+-m template/PAM50_gm.nii.gz \
+-o crop_funct_moco.nii.gz 
+```
+
+## Straightening the spinal cord 
+This command straightens the spinal cord for easier alignment to the PAM50 template (a straightened spinal cord)
+
+```{bash, eval=FALSE}
+sct_straighten_spinalcord \
+-i funct_moco.nii.gz \
+-s template/PAM50_gm.nii.gz \
+-dest crop_funct_moco.nii.gz \
+-o straight_funct_moco.nii.gz
+```
+
+# <span style="color:red;text-decoration:underline;">FSL </span>
+
+## Setting up Feat fMRI Analysis (in command line)
+
+### Setting up .txt condition files
+A .txt file must be create for each condition type: Pressure & Ice
+
+Column 1. Time~in seconds~at which the condition occurs (from 0)
+
+Column 2. Duration of the condition~in seconds
+
+Column 3. Parametric information (1)
+
+### Setting up .fsf file 
+1. TR(s): Set the TR
+2. Total volume: specify total # of volumes 
+3. Number of EVs: specify number of conditions 
+4. Number of contrasts: Specify number of contrasts 
+5. 4D AVW data or FEAT directory (1): set path to nifty file
+6. EV # title: name each condition (ex. ice)
+7. Convolution: Gamma (2) or Double-Gamma HRF (3)
+8. Custom EV file (EV #): set path to .txt file
+9. Title for contrast_real #: Name contrast (ex. ice vs. no ice)
+10. Title for contrast_orig #: Name contrast (ex. ice vs. no ice)
+
+**For 2+ EVs, replicate lines 277-321 in template.fsf**
+
+### Changing TR
+```{bash, eval=FALSE}
+fslmerge -tr [filename] [filename] #TR
+```
+filename = nifti file of interest (ex. image after moco,crop,straight)
+
+### Viewing results
+```{bash, eval=FALSE}
+feat file.fsf
+```
+file = .fsf file
+
+### Opening the GUI
+```{bash, eval=FALSE}
+Feat [filename]
+```
+
+# <span style="color:red;text-decoration:underline;">Batch Preprocessing </span>
+
+## Creating scripts 
+
+### Shell script (.sh)
+1. Script containing all commands for anatomical segmentation
+2. Script containing all commands for functional segmentation 
+
+### Configure script (.yml)
+This script contains all the participant file directories with the desired files for preprocessing. 
+
+## SCT batch processing 
+This command will loop across each participant and complete all pre-processing commands
+
+```{bash, eval=FALSE}
+sct_run_batch -script script.sh -config config.yml
+```
+**script=file containing script will commands**
