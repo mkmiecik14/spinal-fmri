@@ -4,15 +4,15 @@ This repository contains code related to processing spinal fMRI data.
 
 The main project is organized the following way:
 
-|---- spinal-fmri/    * I refer to this as the main directory
-|
-|-- data/       * raw data and info about participants
-|
-|-- docs/       * documentation
-|
-|-- output/     * any files that were manipulated by code
-|
-|-- src/        * this is what is on github
+|---- spinal-fmri/    * I refer to this as the main directory <br />
+| <br />
+|-- data/       * raw data and info about participants <br />
+| <br />
+|-- docs/       * documentation <br />
+| <br />
+|-- output/     * any files that were manipulated by code <br />
+| <br />
+|-- src/        * this is what is on github <br />
 
 
 ## Processing scripts
