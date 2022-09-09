@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # DICOM 2 NIFTI Conversion
 # Matt Kmiecik
 # Started 7 SEPT 2022
